@@ -5,8 +5,6 @@ import re
 from time import time
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 from operator import itemgetter
 import collections
@@ -22,14 +20,17 @@ from nltk.corpus import stopwords
 nltk.download('stopwords')
 from nltk.stem.snowball import EnglishStemmer
 from nltk.stem.porter import PorterStemmer
+from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('omw-1.4')
+
+from bs4 import BeautifulSoup
 
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer 
 from sklearn.feature_extraction.text import TfidfVectorizer
-
-from bs4 import BeautifulSoup
 
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.decomposition import LatentDirichletAllocation as LDA
@@ -45,10 +46,6 @@ from gensim.models.ldamodel import LdaModel
 from gensim.models import CoherenceModel
 from gensim.models import EnsembleLda
 
-import pyLDAvis
-import pyLDAvis.sklearn
-import pyLDAvis.gensim_models 
-
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 
@@ -58,6 +55,15 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 import warnings
 warnings.filterwarnings('ignore')
+
+def get_wordnet_pos(word):
+#Map POS tag to first character lemmatize() accepts
+    tag = nltk.pos_tag([word])[0][1][0].upper()
+    tag_dict = {"J": wordnet.ADJ,
+                "N": wordnet.NOUN,
+                "V": wordnet.VERB,
+                "R": wordnet.ADV}
+    return tag_dict.get(tag, wordnet.NOUN)
 
 def clean_word(raw_review, lem = True , Porter=True):
     # 1. Remove HTML
@@ -87,61 +93,34 @@ def clean_word(raw_review, lem = True , Porter=True):
     # and return the result.
     return " ".join(meaningful_words)  
 
-def words_vectorizer(DF,vocabulary = None ):
-    vectorizer = CountVectorizer(analyzer='word',vocabulary = vocabulary ,token_pattern = r'(?u)\b[a-zA-Z][a-zA-Z+#.]*\b[+#]*')
-    data_features = vectorizer.fit_transform(DF)
-    vocab = vectorizer.get_feature_names() if vocabulary is None else vocabulary
-    DF_features = pd.DataFrame(data_features.toarray() , columns = vocab)  
-
-def words_vectorizer_TF_IDF(DF,vocabulary = None ):
-    vectorizer = TfidfVectorizer(analyzer='word',vocabulary = vocabulary ,token_pattern = r'(?u)\b[a-zA-Z][a-zA-Z+#.]*\b[+#]*')
-    data_features = vectorizer.fit_transform(DF)
-    vocab = vectorizer.get_feature_names() if vocabulary is None else vocabulary
-    DF_features = pd.DataFrame(data_features.toarray() , columns = vocab)  
-
 class SupervisedModel:
 
     def __init__(self):
-
-        tf_model = "./models/words_tf_model.joblib"
-        tfidf_model = "./models/tfidf_model.joblib"
-
-        vocabulary = "./models/vocabulary.joblib"
-        vocabulary_tfidf = "./models/vocabulary.joblib"
-                
-        pca_model = "./models/pca_model.joblib"
-        pca_model_tfidf = "./models/pca_tfidf_model.joblib"
-        
-        svm_model = "./models/svm_model.joblib"
-        svm_model_tfidf = "./models/svm_model_tfidf.joblib"
-
-        mlb_model = "./models/mlb_model.joblib"
+        tf_model = "./Models/words_tf_model.joblib"
+        vocabulary = "./Models/words_vocabulary.joblib"       
+        pca_model = "./Models/pca_model.joblib"
+        svm_model = "./Models/svm_model.joblib"
+        mlb_model = "./Models/mlb_model.joblib"
 
         self.svm_model = load(svm_model)
-        self.svm_model_tfidf = load(svm_model_tfidf)
         self.mlb_model = load(mlb_model)
         self.tf_model = load(tf_model)
-        self.tfidf_model = load(tfidf_model)
         self.pca_model = load(pca_model)
-        self.pca_model_tfidf = load(pca_model_tfidf)
         self.vocabulary = load(vocabulary)
-        self.vocabulary_tfidf = load(vocabulary_tfidf)
 
-    def predict_tags(self, text , tf_idf = False):
+
+    def predict_tags(self, text):
         text = clean_word(text, lem = True , Porter=True)
-        if tf_idf == True : 
-            input_vector = self.tfidf_model.transform(text)
-            input_vector = pd.DataFrame(input_vector.toarray(), columns=self.vocabulary_tfidf)
-            input_vector = self.pca_model_tfidf.transform(input_vector)
-            resultat = self.svm_model_tfidf.predict(input_vector)
-        else : 
-            input_vector = self.tf_model.transform(text)
-            input_vector = pd.DataFrame(input_vector.toarray(), columns=self.vocabulary)
-            input_vector = self.pca_model.transform(input_vector)
-            resultat = self.svm_model.predict(input_vector)
-            
+        if isinstance(text, str) : 
+            text = text.split() 
+
+        input_vector = self.tf_model.transform(text)
+
+        input_vector = pd.DataFrame(input_vector.toarray(), columns=self.tf_model.get_feature_names())
+        input_vector = self.pca_model.transform(input_vector)
+        resultat = self.svm_model.predict(input_vector)
         resultat = self.mlb_model.inverse_transform(resultat)
-        resultat = list({tag for list_tags in resultat for tag in list_tags if (len(tag_list) != 0)})
+        resultat = list({tag for list_tags in resultat for tag in list_tags if (len(list_tags) != 0)})
         # resultat = [tag for tag  in resultat if tag in text]
         
-        return resultat
+        return ' '.join( resultat )
